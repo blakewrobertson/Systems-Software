@@ -6,7 +6,7 @@
 
 /**
  * This pointer is set when by codeGenerator() func and used by printEmittedCode() func.
- * 
+ *
  * You are not required to use it anywhere. The implemented part of the skeleton
  * handles the printing. Instead, you are required to fill the vmCode properly by making
  * use of emit() func.
@@ -16,7 +16,7 @@ FILE* _out;
 /**
  * Token list iterator used by the code generator. It will be set once entered to
  * codeGenerator() and reset before exiting codeGenerator().
- * 
+ *
  * It is better to use the given helper functions to make use of token list iterator.
  * */
 TokenListIterator _token_list_it;
@@ -53,6 +53,11 @@ int nextCodeIndex;
 int currentReg;
 
 /**
+ * The number of variables
+ * */
+int numVar;
+
+/**
  * Emits the instruction whose fields are given as parameters.
  * Internally, writes the instruction to vmCode[nextCodeIndex] and returns the
  * nextCodeIndex by post-incrementing it.
@@ -62,7 +67,7 @@ int emit(int OP, int R, int L, int M);
 
 /**
  * Prints the emitted code array (vmCode) to output file.
- * 
+ *
  * This func is called in the given codeGenerator() function. You are not required
  * to have another call to this function in your code.
  * */
@@ -87,7 +92,7 @@ void nextToken();
 
 /**
  * Functions used for non-terminals of the grammar
- * 
+ *
  * rel-op func is removed on purpose. For code generation, it is easier to parse
  * rel-op as a part of condition.
  * */
@@ -128,7 +133,7 @@ void nextToken()
 void printCGErr(int errCode, FILE* fp)
 {
     if(!fp || !errCode) return;
-
+    
     fprintf(fp, "CODE GENERATOR ERROR[%d]: %s.\n", errCode, codeGeneratorErrMsg[errCode]);
 }
 
@@ -140,8 +145,8 @@ int emit(int OP, int R, int L, int M)
         exit(0);
     }
     
-    vmCode[nextCodeIndex] = (Instruction){ .op = OP, .r = R, .l = L, .m = M};    
-
+    vmCode[nextCodeIndex] = (Instruction){ .op = OP, .r = R, .l = L, .m = M};
+    
     return nextCodeIndex++;
 }
 
@@ -160,9 +165,9 @@ void printEmittedCodes()
 
 /**
  * Advertised codeGenerator function. Given token list, which is possibly the
- * output of the lexer, parses a program out of tokens and generates code. 
+ * output of the lexer, parses a program out of tokens and generates code.
  * If encountered, returns the error code.
- * 
+ *
  * Returning 0 signals successful code generation.
  * Otherwise, returns a non-zero code generator error code.
  * */
@@ -170,48 +175,50 @@ int codeGenerator(TokenList tokenList, FILE* out)
 {
     // Set output file pointer
     _out = out;
-
+    
     /**
      * Create a token list iterator, which helps to keep track of the current
      * token being parsed.
      * */
     _token_list_it = getTokenListIterator(&tokenList);
-
+    
     // Initialize current level to 0, which is the global level
     currentLevel = 0;
-
+    
     // Initialize current scope to NULL, which is the global scope
     currentScope = NULL;
-
+    
     // The index on the vmCode array that the next emitted code will be written
     nextCodeIndex = 0;
-
+    
     // The id of the register currently being used
     currentReg = 0;
-
+    
+    numVar = 0;
+    
     // Initialize symbol table
     initSymbolTable(&symbolTable);
-
+    
     // Start parsing by parsing program as the grammar suggests.
     int err = program();
-
+    
     // Print symbol table - if no error occured
     if(!err)
     {
         // Print the emitted codes to the file
         printEmittedCodes();
     }
-
+    
     // Reset output file pointer
     _out = NULL;
-
+    
     // Reset the global TokenListIterator
     _token_list_it.currentTokenInd = 0;
     _token_list_it.tokenList = NULL;
-
+    
     // Delete symbol table
     deleteSymbolTable(&symbolTable);
-
+    
     // Return err code - which is 0 if parsing was successful
     return err;
 }
@@ -222,16 +229,16 @@ int program()
     // Generate code for block
     int err = block();
     if(err) return err;
-
+    
     // After parsing block, periodsym should show up
     if( getCurrentTokenType() == periodsym )
     {
         // Consume token
         nextToken();
-
+        
         // End of program, emit halt code
         emit(SIO_HALT, 0, 0, 3);
-
+        
         return 0;
     }
     else
@@ -243,84 +250,374 @@ int program()
 
 int block()
 {
-    /**
-     * TODO
-     * */
+    int jmpIndex = nextCodeIndex;
+    emit (JMP, 0, 0, 0);
+    if (getCurrentTokenType() == constsym)
+    {
+        int err = const_declaration();
+        if (err) return err;
+    }
+   
+    if (getCurrentTokenType() == varsym)
+    {
+        int err = var_declaration();
+        if (err) return err;
+        numVar = 0;
+    }
+    emit(INC, 0, 0, 4);
+    emit (INC, 0, 0, numVar);
+    while (getCurrentTokenType() == procsym)
+    {
+        proc_declaration();
+        emit(2, 0, 0, 0);
+        currentReg = 0;
+    }
+    vmCode[jmpIndex].m = nextCodeIndex;
+    int err = statement();
+    if (err) return err;
 
     return 0;
 }
 
 int const_declaration()
 {
-    /**
-     * TODO
-     * */
+    Token token;
+    Symbol symbol;
+    do
+    {
+        nextToken();
+        if (getCurrentTokenType() != identsym)
+            return 3;
+        token = getCurrentToken();
+        strcpy(symbol.name, token.lexeme);
+        nextToken();
+        if (getCurrentTokenType() != eqsym)
+            return 2;
+        nextToken();
+        if (getCurrentTokenType() != numbersym)
+            return 1;
+        token = getCurrentToken();
+        symbol.value = atoi(token.lexeme);
+        symbol.level = currentLevel;
+        symbol.scope = currentScope;
+        symbol.type = CONST;
+        symbol.address = 0;
+        addSymbol(&symbolTable, symbol);
+        nextToken();
+    }
+    while (getCurrentTokenType() == commasym);
+    {
+        if (getCurrentTokenType() != semicolonsym)
+            return 4;
+        nextToken();
+    }
 
+    
     return 0;
 }
 
 int var_declaration()
 {
-    /**
-     * TODO
-     * */
-    
+    Token token;
+    Symbol symbol;
+    do
+    {
+        nextToken();
+        if (getCurrentTokenType() != identsym)
+            return 3;
+        token = getCurrentToken();
+        strcpy(symbol.name, token.lexeme);
+        symbol.type = VAR;
+        symbol.value = 0;
+        symbol.scope = currentScope;
+        symbol.level = currentLevel;
+        symbol.address = 4 + numVar;
+        addSymbol(&symbolTable, symbol);
+        nextToken();
+        numVar++;
+    }
+    while (getCurrentTokenType() == commasym);
+    if (getCurrentTokenType() != semicolonsym)
+        return 4;
+    nextToken();
     return 0;
 }
 
 int proc_declaration()
 {
-    /**
-     * TODO
-     * */
+    Token token;
+    Symbol symbol;
+    nextToken();
+    if (getCurrentTokenType() != identsym)
+        return 3;
+    token = getCurrentToken();
+    strcpy(symbol.name, token.lexeme);
+    symbol.type = PROC;
+    symbol.value = 0;
+    symbol.level = currentLevel;
+    symbol.scope = currentScope;
+    symbol.address = nextCodeIndex;
+    addSymbol(&symbolTable, symbol);
     
+    nextToken();
+    if (getCurrentTokenType() != semicolonsym)
+        return 5;
+    nextToken();
+    currentLevel++;
+    int err = block();
+    if (err) return err;
+    currentLevel--;
+    if (getCurrentTokenType() != semicolonsym)
+        return 5;
+    nextToken();
+
     return 0;
 }
 
 int statement()
 {
-    /**
-     * TODO
-     * */
+    if (getCurrentTokenType() == identsym)
+    {
+        Symbol* symbol = findSymbol(&symbolTable, currentScope, getCurrentToken().lexeme);
+        if (symbol == NULL)
+            return 15;
+        else if (symbol->type != VAR)
+            return 16;
+        nextToken();
+        if (getCurrentTokenType() != becomessym)
+            return 7;
+        nextToken();
+        int err = expression();
+        if (err) return err;
+        emit (STO, currentReg--, currentLevel - symbol->level, symbol->address);
+    }
+    else if (getCurrentTokenType() == callsym)
+    {
+        nextToken();
+        if (getCurrentTokenType() != identsym)
+            return 8;
+        Symbol* symbol = findSymbol(&symbolTable, currentScope, getCurrentToken().lexeme);
+        if (symbol == NULL)
+            return 15;
+        else if (symbol->type != PROC)
+            return 17;
+        emit (CAL, 0, currentLevel- symbol->level, symbol->address);
+        nextToken();
+    }
+    else if (getCurrentTokenType() == beginsym)
+    {
+        nextToken();
+        int err = statement();
+        if (err) return err;
+        while (getCurrentTokenType() == semicolonsym)
+        {
+            nextToken();
+            err = statement();
+            if (err) return err;
+        }
+        if (getCurrentTokenType() != endsym)
+            return 10;
+        nextToken();
+    }
+    else if (getCurrentTokenType() == ifsym)
+    {
+        nextToken();
+        int err = condition();
+        if (err) return err;
+        if (getCurrentTokenType() != thensym)
+            return 9;
+        nextToken();
+        int jmpcIndex = nextCodeIndex;
+        emit(JPC, 0, 0, 0);
+        err = statement();
+        if (err) return err;
+        int jmpIndex = nextCodeIndex;
+        emit (JMP, 0, 0, 0);
+        vmCode[jmpcIndex].m = nextCodeIndex;
+        if (getCurrentTokenType() == elsesym)
+        {
+            nextToken();
+            err = statement();
+            if (err) return err;
+        }
+        vmCode[jmpIndex].m = nextCodeIndex;
+    }
+    else if (getCurrentTokenType() == whilesym)
+    {
+        int codeIndex1 = nextCodeIndex;
+        nextToken();
+        int err = condition();
+        if (err) return err;
+        int codeIndex2 = nextCodeIndex;
+        emit (JPC, 0, 0, 0);
+        if (getCurrentTokenType() != dosym)
+            return 11;
+        nextToken();
+        err = statement();
+        if (err) return err;
+        emit (JMP, 0, 0, codeIndex1);
+        vmCode[codeIndex2].m = nextCodeIndex;
+    }
+    else if (getCurrentTokenType() == writesym || getCurrentTokenType() == readsym)
+    {
+        int tokenVal = getCurrentTokenType();
+        nextToken();
+        if (getCurrentTokenType() != identsym)
+            return 3;
+        Symbol* symbol = findSymbol(&symbolTable, currentScope, getCurrentToken().lexeme);
+        if (symbol == NULL)
+            return 15;
+        if (tokenVal == readsym)
+        {
+            if (symbol->type != VAR)
+                return 19;
+            emit (SIO_READ, currentReg, 0, 2);
+            emit (STO, currentReg--, currentLevel - symbol->level, symbol->address);
+        }
+        else if (tokenVal == writesym)
+        {
+            if (symbol->type == CONST)
+            {
+                emit (LIT, ++currentReg, 0, symbol->value);
+                emit (SIO_WRITE, currentReg, 0, 1);
+            }
+            else if (symbol->type == VAR)
+            {
+                emit (LOD, currentReg, currentLevel - symbol->level, symbol->address);
+                emit (SIO_WRITE, currentReg, 0, 1);
+            }
+            else
+                return 18;
+        }
+        nextToken();
+    }
     
     return 0;
 }
 
 int condition()
 {
-    /**
-     * TODO
-     * 
-     * Also, rel-op will be parsed and corresponding code will be generated here
-     * */
-
-    
+    if (getCurrentTokenType() == oddsym)
+    {
+        nextToken();
+        int err = expression();
+        if (err) return err;
+    }
+    else
+    {
+        int err = expression();
+        if (err) return err;
+        nextToken();
+        err = expression();
+        if (err) return err;
+    }
     return 0;
 }
 
 int expression()
 {
-    /**
-     * TODO
-     * */
+    //Checks if there is a '+' or '-'
+    if (getCurrentTokenType() == plussym || getCurrentTokenType() == minussym)
+    {
+        //Prints current token and moves to next
+        nextToken();
+    }
+    
+    //Calls the term function
+    int err = term();
+    //If term function returns an error return that error
+    if (err)
+    {
+        return err;
+    }
+    
+    //Loops until a '+' and '-' are not seen
+    //Allows for multiple multiple addition and and expression expressions to follow one another
+    while (getCurrentTokenType() == plussym || getCurrentTokenType() == minussym)
+    {
+        //Prints the current token and moves to next
+        nextToken();
+        
+        //Calls the term function
+        int err = term();
+        //If the term function returns an error return that error
+        if (err)
+        {
+            return err;
+        }
+    }
+    
     
     return 0;
 }
 
 int term()
 {
-    /**
-     * TODO
-     * */
+    int err = factor();
+    //If the factor function returns an error return that error
+    if (err)
+    {
+        return err;
+    }
+    
+    //Loops until a '*' and '/' are not seen
+    //This allows for multiple multiplication and division terms to follow one another
+    while (getCurrentTokenType() == multsym || getCurrentTokenType() == slashsym)
+    {
+        //Prints the current token and moves to the next
+        nextToken();
+        
+        //Calls the factor function
+        int err = factor();
+        //If factor function returns an error return that error
+        if (err)
+        {
+            return err;
+        }
+    }
     
     return 0;
 }
 
 int factor()
 {
-    /**
-     * TODO
-     * */
+    if (getCurrentTokenType() == identsym)
+    {
+        Symbol* symbol = findSymbol(&symbolTable, currentScope, getCurrentToken().lexeme);
+        if (symbol == NULL)
+            return 15;
+        if (symbol->type == CONST)
+        {
+            emit(LIT, ++currentReg, 0, symbol->value);
+        }
+        else if (symbol->type == VAR)
+        {
+            emit (STO, currentReg--, currentLevel - symbol->level, symbol->address);
+        }
+        else
+        {
+            return 16;
+        }
+        nextToken();
+    }
+    else if (getCurrentTokenType() == numbersym)
+    {
+        int value = atoi(getCurrentToken().lexeme);
+        emit(LIT, ++currentReg, 0, value);
+        nextToken();
+    }
+    else if (getCurrentTokenType() == lparentsym)
+    {
+        nextToken();
+        int err = expression();
+        if (err) return err;
+        if (getCurrentTokenType() != rparentsym)
+            return 13;
+        nextToken();
+    }
+    else
+        return 14;
     
     return 0;
 }
+
