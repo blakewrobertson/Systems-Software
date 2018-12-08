@@ -208,7 +208,6 @@ int codeGenerator(TokenList tokenList, FILE* out)
         // Print the emitted codes to the file
         printEmittedCodes();
     }
-    
     // Reset output file pointer
     _out = NULL;
     
@@ -250,32 +249,29 @@ int program()
 
 int block()
 {
-    int jmpIndex = nextCodeIndex;
-    emit (JMP, 0, 0, 0);
+    int jmpIndex = 0;
     if (getCurrentTokenType() == constsym)
     {
         int err = const_declaration();
         if (err) return err;
     }
-   
     if (getCurrentTokenType() == varsym)
     {
         int err = var_declaration();
         if (err) return err;
-        numVar = 0;
     }
-    emit(INC, 0, 0, 4);
-    emit (INC, 0, 0, numVar);
+    if (numVar > 0)
+        emit(INC, 0, 0, numVar);
     while (getCurrentTokenType() == procsym)
     {
+        jmpIndex = nextCodeIndex;
+        emit (JMP, 0, 0, 0);
         proc_declaration();
         emit(2, 0, 0, 0);
-        currentReg = 0;
     }
     vmCode[jmpIndex].m = nextCodeIndex;
     int err = statement();
     if (err) return err;
-
     return 0;
 }
 
@@ -331,7 +327,7 @@ int var_declaration()
         symbol.value = 0;
         symbol.scope = currentScope;
         symbol.level = currentLevel;
-        symbol.address = 4 + numVar;
+        symbol.address = numVar;
         addSymbol(&symbolTable, symbol);
         nextToken();
         numVar++;
@@ -347,6 +343,7 @@ int proc_declaration()
 {
     Token token;
     Symbol symbol;
+    //Symbol *prev;
     nextToken();
     if (getCurrentTokenType() != identsym)
         return 3;
@@ -356,21 +353,23 @@ int proc_declaration()
     symbol.value = 0;
     symbol.level = currentLevel;
     symbol.scope = currentScope;
+    //printf("1. %s\n", symbol.scope->name);
     symbol.address = nextCodeIndex;
+    //prev = currentScope;
     addSymbol(&symbolTable, symbol);
-    
     nextToken();
     if (getCurrentTokenType() != semicolonsym)
         return 5;
     nextToken();
+    emit(INC, 0, 0, 4);
     currentLevel++;
     int err = block();
-    if (err) return err;
     currentLevel--;
+    if (err) return err;
     if (getCurrentTokenType() != semicolonsym)
         return 5;
+    //currentScope = prev;
     nextToken();
-
     return 0;
 }
 
@@ -389,7 +388,7 @@ int statement()
         nextToken();
         int err = expression();
         if (err) return err;
-        emit (STO, currentReg--, currentLevel - symbol->level, symbol->address);
+        emit (STO, currentReg--, symbol->level - currentLevel, symbol->address);
     }
     else if (getCurrentTokenType() == callsym)
     {
@@ -401,7 +400,7 @@ int statement()
             return 15;
         else if (symbol->type != PROC)
             return 17;
-        emit (CAL, 0, currentLevel- symbol->level, symbol->address);
+        emit (CAL, 0, currentLevel - symbol->level, symbol->address);
         nextToken();
     }
     else if (getCurrentTokenType() == beginsym)
@@ -464,7 +463,10 @@ int statement()
         nextToken();
         if (getCurrentTokenType() != identsym)
             return 3;
+        //printf("%s7.\n", currentScope->name);
         Symbol* symbol = findSymbol(&symbolTable, currentScope, getCurrentToken().lexeme);
+        //printf("4. %d %d %s %d\n", symbol->level, currentLevel, symbol->name
+        //,symbol->address);
         if (symbol == NULL)
             return 15;
         if (tokenVal == readsym)
@@ -483,7 +485,9 @@ int statement()
             }
             else if (symbol->type == VAR)
             {
-                emit (LOD, currentReg, currentLevel - symbol->level, symbol->address);
+                //printf("5. %s\n", symbol->name);
+                emit (LOD, currentReg, symbol->level - currentLevel,
+                      symbol->address);
                 emit (SIO_WRITE, currentReg, 0, 1);
             }
             else
@@ -502,14 +506,34 @@ int condition()
         nextToken();
         int err = expression();
         if (err) return err;
+        emit(ODD, currentReg, 0, currentReg %2);
     }
     else
     {
         int err = expression();
         if (err) return err;
-        nextToken();
-        err = expression();
-        if (err) return err;
+        if (getCurrentTokenType() == eqsym || getCurrentTokenType() == neqsym || getCurrentTokenType() == lessym
+            || getCurrentTokenType() == leqsym || getCurrentTokenType() == gtrsym || getCurrentTokenType() == geqsym)
+        {
+            int relop = getCurrentTokenType();
+            nextToken();
+            err = expression();
+                if (err) return err;
+            if (relop == eqsym)
+                emit(EQL, currentReg, currentReg-1, currentReg-2);
+            else if (relop == neqsym)
+                emit(NEQ, currentReg, currentReg-1, currentReg-2);
+            else if (relop == lessym)
+                emit(LSS, currentReg, currentReg-1, currentReg-2);
+            else if (relop == leqsym)
+                emit(LEQ, currentReg, currentReg-1, currentReg-2);
+            else if (relop == gtrsym)
+                emit(GTR, currentReg, currentReg-1, currentReg-2);
+            else if (relop == geqsym)
+                emit(GEQ, currentReg, currentReg-1, currentReg-2);
+        }
+        else
+            return 12;
     }
     return 0;
 }
@@ -519,61 +543,47 @@ int expression()
     //Checks if there is a '+' or '-'
     if (getCurrentTokenType() == plussym || getCurrentTokenType() == minussym)
     {
-        //Prints current token and moves to next
+        int operation = getCurrentTokenType();
         nextToken();
+        int err = term();
+        if (err) return err;
+        if (operation == minussym)
+            emit (NEG, currentReg, currentReg-1, 0);
     }
-    
-    //Calls the term function
-    int err = term();
-    //If term function returns an error return that error
-    if (err)
+    else
     {
-        return err;
+        int err = term();
+        if (err) return err;
     }
     
-    //Loops until a '+' and '-' are not seen
-    //Allows for multiple multiple addition and and expression expressions to follow one another
     while (getCurrentTokenType() == plussym || getCurrentTokenType() == minussym)
     {
-        //Prints the current token and moves to next
+        int operation = getCurrentTokenType();
         nextToken();
-        
-        //Calls the term function
         int err = term();
-        //If the term function returns an error return that error
-        if (err)
-        {
-            return err;
-        }
+        if (err) return err;
+        if (operation == plussym)
+            emit(ADD, currentReg, currentReg-1, currentReg-2);
+        else if (operation == minussym)
+            emit(NEG, currentReg, currentReg-1, 0);
     }
-    
-    
     return 0;
 }
 
 int term()
 {
     int err = factor();
-    //If the factor function returns an error return that error
-    if (err)
-    {
-        return err;
-    }
-    
-    //Loops until a '*' and '/' are not seen
-    //This allows for multiple multiplication and division terms to follow one another
+    if (err) return err;
     while (getCurrentTokenType() == multsym || getCurrentTokenType() == slashsym)
     {
-        //Prints the current token and moves to the next
+        int operation = getCurrentTokenType();
         nextToken();
-        
-        //Calls the factor function
         int err = factor();
-        //If factor function returns an error return that error
-        if (err)
-        {
-            return err;
-        }
+        if (err) return err;
+        if (operation == multsym)
+            emit(MUL, currentReg, currentReg-1, currentReg-2);
+        else if (operation == slashsym)
+            emit(DIV, currentReg, currentReg-1, currentReg-2);
     }
     
     return 0;
@@ -592,7 +602,7 @@ int factor()
         }
         else if (symbol->type == VAR)
         {
-            emit (STO, currentReg--, currentLevel - symbol->level, symbol->address);
+            emit (STO, currentReg--, symbol->level - currentLevel, symbol->address);
         }
         else
         {

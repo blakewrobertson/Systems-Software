@@ -94,6 +94,7 @@ Symbol* findSymbol(SymbolTable* symbolTable, Symbol* scope, const char* symbolNa
         // Search the current scope
         for(int i = 0; i < symbolTable->numberOfSymbols; i++)
         {
+            //printf("Symbols: %s %s\n", symbolTable->symbols[i].name, symbolTable->symbols[i].scope);
             if( symbolTable->symbols[i].scope == scope && !strcmp(symbolTable->symbols[i].name, symbolName) )
             {
                 return &symbolTable->symbols[i];
