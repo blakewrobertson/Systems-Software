@@ -249,7 +249,10 @@ int program()
 
 int block()
 {
+    currentLevel++;
+    int space = 4;
     int jmpIndex = 0;
+    Symbol* prev = currentScope;
     if (getCurrentTokenType() == constsym)
     {
         int err = const_declaration();
@@ -260,18 +263,20 @@ int block()
         int err = var_declaration();
         if (err) return err;
     }
-    if (numVar > 0)
-        emit(INC, 0, 0, numVar);
+    space += numVar;
+    emit(INC, 0, 0, numVar);
     while (getCurrentTokenType() == procsym)
     {
         jmpIndex = nextCodeIndex;
         emit (JMP, 0, 0, 0);
         proc_declaration();
-        emit(2, 0, 0, 0);
     }
     vmCode[jmpIndex].m = nextCodeIndex;
     int err = statement();
     if (err) return err;
+    emit(2, 0, 0, 0);
+    currentScope = prev;
+    currentLevel--;
     return 0;
 }
 
@@ -343,7 +348,6 @@ int proc_declaration()
 {
     Token token;
     Symbol symbol;
-    //Symbol *prev;
     nextToken();
     if (getCurrentTokenType() != identsym)
         return 3;
@@ -355,20 +359,16 @@ int proc_declaration()
     symbol.scope = currentScope;
     //printf("1. %s\n", symbol.scope->name);
     symbol.address = nextCodeIndex;
-    //prev = currentScope;
     addSymbol(&symbolTable, symbol);
     nextToken();
     if (getCurrentTokenType() != semicolonsym)
         return 5;
     nextToken();
-    emit(INC, 0, 0, 4);
-    currentLevel++;
+    //emit(INC, 0, 0, 4);
     int err = block();
-    currentLevel--;
     if (err) return err;
     if (getCurrentTokenType() != semicolonsym)
         return 5;
-    //currentScope = prev;
     nextToken();
     return 0;
 }
@@ -563,9 +563,16 @@ int expression()
         int err = term();
         if (err) return err;
         if (operation == plussym)
-            emit(ADD, currentReg, currentReg-1, currentReg-2);
+        {
+            printf("currentReg: %d\n", currentReg);
+            emit(ADD, currentReg-1, currentReg-1, currentReg);
+            currentReg--;
+        }
         else if (operation == minussym)
-            emit(NEG, currentReg, currentReg-1, 0);
+        {
+            emit(SUB, currentReg-1, currentReg-1, currentReg);
+            currentReg--;
+        }
     }
     return 0;
 }
@@ -581,9 +588,15 @@ int term()
         int err = factor();
         if (err) return err;
         if (operation == multsym)
-            emit(MUL, currentReg, currentReg-1, currentReg-2);
+        {
+            emit(MUL, currentReg-1, currentReg-1, currentReg);
+            currentReg--;
+        }
         else if (operation == slashsym)
-            emit(DIV, currentReg, currentReg-1, currentReg-2);
+        {
+            emit(DIV, currentReg-1, currentReg-1, currentReg);
+            currentReg--;
+        }
     }
     
     return 0;
