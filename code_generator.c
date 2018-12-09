@@ -1,3 +1,9 @@
+/*
+ * Blake Robertson
+ * COP 3402 Compiler Assignment
+ * NID: bl762962
+ */
+
 #include "token.h"
 #include "data.h"
 #include "symbol.h"
